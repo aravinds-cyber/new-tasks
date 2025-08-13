@@ -1,44 +1,82 @@
 pipeline {
     agent any
-
+    
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Map branch to image tag
-                    IMAGE_TAG = (BRANCH_NAME == "main" || BRANCH_NAME == "prod") ? "prod" : BRANCH_NAME
-                    
-                    echo "Building Docker image for branch: ${BRANCH_NAME} → tag: ${IMAGE_TAG}"
-                    sh "docker build -t myapp:${IMAGE_TAG} ."
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    dockerImage = docker.build("myapp:${imageTag}")
                 }
             }
         }
-
-        stage('Deploy Locally') {
+        
+        stage('Save and Transfer Docker Image') {
             steps {
                 script {
-                    // Map branch to image tag again for safety
-                    IMAGE_TAG = (BRANCH_NAME == "main" || BRANCH_NAME == "prod") ? "prod" : BRANCH_NAME
-
-                    // Remove any existing container with same name
-                    sh "docker ps -aq --filter name=myapp-${IMAGE_TAG} | xargs -r docker rm -f"
-
-                    if (BRANCH_NAME == 'dev') {
-                        echo "Running Dev environment..."
-                        sh "docker run -d -p 5001:5000 --name myapp-dev myapp:${IMAGE_TAG}"
-                    } else if (BRANCH_NAME == 'staging') {
-                        echo "Running Staging environment..."
-                        sh "docker run -d -p 5002:5000 --name myapp-staging myapp:${IMAGE_TAG}"
-                    } else if (BRANCH_NAME == 'main' || BRANCH_NAME == 'prod') {
-                        echo "Running Production environment..."
-                        sh "docker run -d -p 5003:5000 --name myapp-prod myapp:${IMAGE_TAG}"
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    def tarFile = "myapp_${imageTag}.tar"
+                    
+                    // Save Docker image as tar
+                    sh "docker save -o ${tarFile} myapp:${imageTag}"
+                    
+                    // Copy tar to target server based on branch
+                    if (env.BRANCH_NAME == 'dev') {
+                        sh "scp ${tarFile} user@dev-server:/tmp/"
+                    } else if (env.BRANCH_NAME == 'staging') {
+                        sh "scp ${tarFile} user@staging-server:/tmp/"
+                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'prod') {
+                        sh "scp ${tarFile} user@prod-server:/tmp/"
                     } else {
-                        echo "No deployment rules for this branch."
+                        error "No deployment target for branch ${env.BRANCH_NAME}"
                     }
                 }
             }
         }
+        
+        stage('Deploy on Target Server') {
+            steps {
+                script {
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    def tarFile = "myapp_${imageTag}.tar"
+                    def server = ''
+                    
+                    if (env.BRANCH_NAME == 'dev') {
+                        server = 'dev-server'
+                    } else if (env.BRANCH_NAME == 'staging') {
+                        server = 'staging-server'
+                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'prod') {
+                        server = 'prod-server'
+                    } else {
+                        error "No deployment target for branch ${env.BRANCH_NAME}"
+                    }
+                    
+                    // SSH into server, load image, stop old container, run new container
+                    sh """
+                    ssh user@${server} '
+                    docker load -i /tmp/${tarFile} &&
+                    docker stop myapp || true &&
+                    docker rm myapp || true &&
+                    docker run -d --name myapp -p 5000:5000 myapp:${imageTag}
+                    '
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo "Done deploying branch ${env.BRANCH_NAME}"
+        }
     }
 }
+
 
 
