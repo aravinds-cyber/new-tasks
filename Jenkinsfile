@@ -3,8 +3,8 @@ pipeline {
 
     environment {
         APP_NAME = "myapp"
-        DEV_SERVER = "ubuntu@13.235.128.65"
-        STAGING_SERVER = "ubuntu@15.206.72.230"
+        DEV_SERVER = "root@13.235.128.65"
+        STAGING_SERVER = "root@15.206.72.230"
         SSH_KEY = "/root/.ssh/my-key.pem"  // path to your EC2 private key in Jenkins container
     }
 
