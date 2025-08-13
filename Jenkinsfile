@@ -1,46 +1,63 @@
 pipeline {
     agent any
 
+    environment {
+        APP_NAME = "myapp"
+        DEV_SERVER = "ubuntu@13.235.128.65"
+        STAGING_SERVER = "ubuntu@15.206.72.230"
+        SSH_KEY = "/root/.ssh/my-key.pem"  // path to your EC2 private key in Jenkins container
+    }
+
     stages {
-        stage('Build') {
+        stage('Build Docker Image') {
             steps {
-                sh 'echo "Building application..."'
-                sh 'docker build -t myapp:${BRANCH_NAME} .'
-                sh 'docker save myapp:${BRANCH_NAME} -o myapp_${BRANCH_NAME}.tar'
+                script {
+                    // Build image with branch-specific tag
+                    def tag = "${env.BRANCH_NAME}-1"
+                    sh """
+                        docker build -t ${APP_NAME}:${tag} .
+                        docker save ${APP_NAME}:${tag} -o ${APP_NAME}_${tag}.tar
+                    """
+                }
             }
         }
 
         stage('Deploy to Dev') {
             when { branch 'dev' }
             steps {
-                sh """
-                scp -o StrictHostKeyChecking=no myapp_dev.tar ubuntu@13.235.128.65:/tmp/
-                ssh -o StrictHostKeyChecking=no ubuntu@13.235.128.65 '
-                    docker load -i /tmp/myapp_dev.tar &&
-                    docker stop myapp || true &&
-                    docker rm myapp || true &&
-                    docker run -d --name myapp -p 8080:8080 myapp:dev
-                '
-                """
+                script {
+                    def tag = "dev-1"
+                    sh """
+                        scp -i ${SSH_KEY} ${APP_NAME}_${tag}.tar ${DEV_SERVER}:/tmp/
+                        ssh -i ${SSH_KEY} ${DEV_SERVER} '
+                            docker load -i /tmp/${APP_NAME}_${tag}.tar &&
+                            docker rm -f ${APP_NAME} || true &&
+                            docker run -d --name ${APP_NAME} -p 3000:3000 ${APP_NAME}:${tag}
+                        '
+                    """
+                }
             }
         }
 
         stage('Deploy to Staging') {
             when { branch 'staging' }
             steps {
-                sh """
-                scp -o StrictHostKeyChecking=no myapp_staging.tar ubuntu@15.206.72.230:/tmp/
-                ssh -o StrictHostKeyChecking=no ubuntu@15.206.72.230 '
-                    docker load -i /tmp/myapp_staging.tar &&
-                    docker stop myapp || true &&
-                    docker rm myapp || true &&
-                    docker run -d --name myapp -p 8080:8080 myapp:staging
-                '
-                """
+                script {
+                    def tag = "staging-1"
+                    sh """
+                        scp -i ${SSH_KEY} ${APP_NAME}_${tag}.tar ${STAGING_SERVER}:/tmp/
+                        ssh -i ${SSH_KEY} ${STAGING_SERVER} '
+                            docker load -i /tmp/${APP_NAME}_${tag}.tar &&
+                            docker rm -f ${APP_NAME} || true &&
+                            docker run -d --name ${APP_NAME} -p 3000:3000 ${APP_NAME}:${tag}
+                        '
+                    """
+                }
             }
         }
     }
 }
+
 
 
 
