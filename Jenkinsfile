@@ -1,13 +1,10 @@
 pipeline {
     agent any
-    
+
     stages {
         stage('Checkout') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
-        
         stage('Build Docker Image') {
             steps {
                 script {
@@ -16,48 +13,42 @@ pipeline {
                 }
             }
         }
-        
         stage('Save and Transfer Docker Image') {
             steps {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     def tarFile = "myapp_${imageTag}.tar"
-                    
-                    // Save Docker image as tar
                     sh "docker save -o ${tarFile} myapp:${imageTag}"
-                    
-                    // Copy tar to target server based on branch
+
+                    def server = ''
                     if (env.BRANCH_NAME == 'dev') {
-                        sh "scp ${tarFile} user@dev-server:/tmp/"
+                        server = 'dev-server-ip-or-hostname'
                     } else if (env.BRANCH_NAME == 'staging') {
-                        sh "scp ${tarFile} user@staging-server:/tmp/"
-                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'prod') {
-                        sh "scp ${tarFile} user@prod-server:/tmp/"
+                        server = 'staging-server-ip-or-hostname'
+                    } else if (env.BRANCH_NAME == 'main') {
+                        server = 'prod-server-ip-or-hostname'
                     } else {
                         error "No deployment target for branch ${env.BRANCH_NAME}"
                     }
+
+                    sh "scp ${tarFile} user@${server}:/tmp/"
                 }
             }
         }
-        
         stage('Deploy on Target Server') {
             steps {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     def tarFile = "myapp_${imageTag}.tar"
                     def server = ''
-                    
                     if (env.BRANCH_NAME == 'dev') {
-                        server = 'dev-server'
+                        server = '13.235.128.65'
                     } else if (env.BRANCH_NAME == 'staging') {
-                        server = 'staging-server'
-                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'prod') {
-                        server = 'prod-server'
-                    } else {
-                        error "No deployment target for branch ${env.BRANCH_NAME}"
+                        server = '15.206.72.230'
+                    } else if (env.BRANCH_NAME == 'main') {
+                        server = '3.111.147.44'
                     }
-                    
-                    // SSH into server, load image, stop old container, run new container
+
                     sh """
                     ssh user@${server} '
                     docker load -i /tmp/${tarFile} &&
@@ -68,12 +59,6 @@ pipeline {
                     """
                 }
             }
-        }
-    }
-    
-    post {
-        always {
-            echo "Done deploying branch ${env.BRANCH_NAME}"
         }
     }
 }
