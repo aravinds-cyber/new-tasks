@@ -22,11 +22,11 @@ pipeline {
 
                     def server = ''
                     if (env.BRANCH_NAME == 'dev') {
-                        server = 'dev-server-ip-or-hostname'
+                        server = '13.235.128.65'
                     } else if (env.BRANCH_NAME == 'staging') {
-                        server = 'staging-server-ip-or-hostname'
+                        server = '15.206.72.230'
                     } else if (env.BRANCH_NAME == 'main') {
-                        server = 'prod-server-ip-or-hostname'
+                        server = '3.111.147.44'
                     } else {
                         error "No deployment target for branch ${env.BRANCH_NAME}"
                     }
