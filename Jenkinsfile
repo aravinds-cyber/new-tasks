@@ -1,72 +1,47 @@
 pipeline {
     agent any
 
-    environment {
-        APP_NAME = "myapp"
-        DEV_SERVER = "13.235.128.65"
-        STAGING_SERVER = "15.206.72.230"
-        DOCKER_PORT = "8080"
-    }
-
     stages {
-        stage('Checkout') {
+        stage('Build') {
             steps {
-                checkout scm
+                sh 'echo "Building application..."'
+                sh 'docker build -t myapp:${BRANCH_NAME} .'
+                sh 'docker save myapp:${BRANCH_NAME} -o myapp_${BRANCH_NAME}.tar'
             }
         }
 
-        stage('Build Docker Image on Master') {
+        stage('Deploy to Dev') {
+            when { branch 'dev' }
             steps {
-                script {
-                    echo "Building image for ${env.BRANCH_NAME}"
-                    sh """
-                        docker build -t ${APP_NAME}:${env.BRANCH_NAME} .
-                        docker save ${APP_NAME}:${env.BRANCH_NAME} > ${APP_NAME}-${env.BRANCH_NAME}.tar
-                    """
-                }
+                sh """
+                scp -o StrictHostKeyChecking=no myapp_dev.tar ubuntu@13.235.128.65:/tmp/
+                ssh -o StrictHostKeyChecking=no ubuntu@13.235.128.65 '
+                    docker load -i /tmp/myapp_dev.tar &&
+                    docker stop myapp || true &&
+                    docker rm myapp || true &&
+                    docker run -d --name myapp -p 8080:8080 myapp:dev
+                '
+                """
             }
         }
 
-        stage('Deploy to Target Server') {
+        stage('Deploy to Staging') {
+            when { branch 'staging' }
             steps {
-                script {
-                    if (env.BRANCH_NAME == 'dev') {
-                        echo "Deploying to DEV server"
-                        sh """
-                            scp ${APP_NAME}-${env.BRANCH_NAME}.tar ${DEV_SERVER}:/tmp/
-                            ssh ${DEV_SERVER} '
-                                docker load < /tmp/${APP_NAME}-${env.BRANCH_NAME}.tar &&
-                                docker stop ${APP_NAME}-dev || true &&
-                                docker rm ${APP_NAME}-dev || true &&
-                                docker run -d --name ${APP_NAME}-dev -p 8081:${DOCKER_PORT} ${APP_NAME}:${env.BRANCH_NAME}
-                            '
-                        """
-                    } else if (env.BRANCH_NAME == 'staging') {
-                        echo "Deploying to STAGING server"
-                        sh """
-                            scp ${APP_NAME}-${env.BRANCH_NAME}.tar ${STAGING_SERVER}:/tmp/
-                            ssh ${STAGING_SERVER} '
-                                docker load < /tmp/${APP_NAME}-${env.BRANCH_NAME}.tar &&
-                                docker stop ${APP_NAME}-staging || true &&
-                                docker rm ${APP_NAME}-staging || true &&
-                                docker run -d --name ${APP_NAME}-staging -p 8082:${DOCKER_PORT} ${APP_NAME}:${env.BRANCH_NAME}
-                            '
-                        """
-                    } else {
-                        echo "No deployment for branch ${env.BRANCH_NAME}"
-                    }
-                }
+                sh """
+                scp -o StrictHostKeyChecking=no myapp_staging.tar ubuntu@15.206.72.230:/tmp/
+                ssh -o StrictHostKeyChecking=no ubuntu@15.206.72.230 '
+                    docker load -i /tmp/myapp_staging.tar &&
+                    docker stop myapp || true &&
+                    docker rm myapp || true &&
+                    docker run -d --name myapp -p 8080:8080 myapp:staging
+                '
+                """
             }
-        }
-    }
-
-    post {
-        always {
-            sh "rm -f ${APP_NAME}-${env.BRANCH_NAME}.tar || true"
-            echo "Pipeline finished for branch: ${env.BRANCH_NAME}"
         }
     }
 }
+
 
 
 
