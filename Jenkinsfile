@@ -15,12 +15,13 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image Locally') {
+        stage('Build Docker Image on Master') {
             steps {
                 script {
                     echo "Building image for ${env.BRANCH_NAME}"
                     sh """
                         docker build -t ${APP_NAME}:${env.BRANCH_NAME} .
+                        docker save ${APP_NAME}:${env.BRANCH_NAME} > ${APP_NAME}-${env.BRANCH_NAME}.tar
                     """
                 }
             }
@@ -32,25 +33,23 @@ pipeline {
                     if (env.BRANCH_NAME == 'dev') {
                         echo "Deploying to DEV server"
                         sh """
-                            scp -r . ${DEV_SERVER}:/tmp/${APP_NAME}
+                            scp ${APP_NAME}-${env.BRANCH_NAME}.tar ${DEV_SERVER}:/tmp/
                             ssh ${DEV_SERVER} '
-                                cd /tmp/${APP_NAME} &&
+                                docker load < /tmp/${APP_NAME}-${env.BRANCH_NAME}.tar &&
                                 docker stop ${APP_NAME}-dev || true &&
                                 docker rm ${APP_NAME}-dev || true &&
-                                docker build -t ${APP_NAME}:dev . &&
-                                docker run -d --name ${APP_NAME}-dev -p 8081:${DOCKER_PORT} ${APP_NAME}:dev
+                                docker run -d --name ${APP_NAME}-dev -p 8081:${DOCKER_PORT} ${APP_NAME}:${env.BRANCH_NAME}
                             '
                         """
                     } else if (env.BRANCH_NAME == 'staging') {
                         echo "Deploying to STAGING server"
                         sh """
-                            scp -r . ${STAGING_SERVER}:/tmp/${APP_NAME}
+                            scp ${APP_NAME}-${env.BRANCH_NAME}.tar ${STAGING_SERVER}:/tmp/
                             ssh ${STAGING_SERVER} '
-                                cd /tmp/${APP_NAME} &&
+                                docker load < /tmp/${APP_NAME}-${env.BRANCH_NAME}.tar &&
                                 docker stop ${APP_NAME}-staging || true &&
                                 docker rm ${APP_NAME}-staging || true &&
-                                docker build -t ${APP_NAME}:staging . &&
-                                docker run -d --name ${APP_NAME}-staging -p 8082:${DOCKER_PORT} ${APP_NAME}:staging
+                                docker run -d --name ${APP_NAME}-staging -p 8082:${DOCKER_PORT} ${APP_NAME}:${env.BRANCH_NAME}
                             '
                         """
                     } else {
@@ -63,12 +62,12 @@ pipeline {
 
     post {
         always {
+            sh "rm -f ${APP_NAME}-${env.BRANCH_NAME}.tar || true"
             echo "Pipeline finished for branch: ${env.BRANCH_NAME}"
         }
     }
 }
 
-}
 
 
 
